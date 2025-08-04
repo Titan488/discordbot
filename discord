@@ -1,0 +1,247 @@
+import discord
+from discord.ext import commands
+import random
+import asyncio
+import json
+import os
+
+# Bot setup
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='owo', intents=intents)
+
+# Data storage
+users = {}
+cooldowns = {}
+
+# Animals and their values
+animals = {
+    "🐰": 100, "🦊": 200, "🐱": 300, "🐶": 400, 
+    "🐼": 500, "🐯": 600, "🦁": 700, "🐮": 800,
+    "🐷": 900, "🐸": 1000, "🐵": 1100, "🦉": 1200,
+    "🦄": 5000, "🐲": 10000
+}
+
+# Load data from file
+def load_data():
+    global users
+    if os.path.exists("users.json"):
+        with open("users.json", "r") as f:
+            users = json.load(f)
+
+# Save data to file
+def save_data():
+    with open("users.json", "w") as f:
+        json.dump(users, f)
+
+# Initialize user data
+def init_user(user_id):
+    if str(user_id) not in users:
+        users[str(user_id)] = {
+            "money": 0,
+            "animals": {},
+            "xp": 0,
+            "level": 1
+        }
+
+# Hunt command
+@bot.command()
+async def hunt(ctx):
+    user_id = str(ctx.author.id)
+    init_user(user_id)
+    
+    # Cooldown check (30 seconds)
+    if user_id in cooldowns and cooldowns[user_id] > asyncio.get_event_loop().time():
+        remaining = int(cooldowns[user_id] - asyncio.get_event_loop().time())
+        await ctx.send(f"⏱️ | You're exhausted! Try again in **{remaining}** seconds!")
+        return
+    
+    # Set cooldown
+    cooldowns[user_id] = asyncio.get_event_loop().time() + 30
+    
+    # Hunt logic
+    animal = random.choice(list(animals.keys()))
+    value = animals[animal]
+    
+    users[user_id]["money"] += value
+    users[user_id]["xp"] += 10
+    
+    # Level up check
+    if users[user_id]["xp"] >= users[user_id]["level"] * 100:
+        users[user_id]["level"] += 1
+        await ctx.send(f"⬆️ | {ctx.author.mention} leveled up to level **{users[user_id]['level']}**!")
+    
+    save_data()
+    await ctx.send(f"🌱 | You found a **{animal}** worth **{value}** cowoncy!")
+
+# Balance command
+@bot.command(aliases=['bal'])
+async def balance(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    user_id = str(target.id)
+    init_user(user_id)
+    
+    balance = users[user_id]["money"]
+    await ctx.send(f"💰 | {target.mention} has **{balance}** cowoncy!")
+
+# Inventory command
+@bot.command(aliases=['inv'])
+async def inventory(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    user_id = str(target.id)
+    init_user(user_id)
+    
+    inv = users[user_id]["animals"]
+    if not inv:
+        await ctx.send(f"🧺 | {target.mention} has no animals!")
+        return
+    
+    inv_list = "\n".join([f"{animal} x{count}" for animal, count in inv.items()])
+    await ctx.send(f"🧺 | {target.mention}'s inventory:\n{inv_list}")
+
+# Give command
+@bot.command()
+async def give(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ | Invalid amount!")
+        return
+    
+    giver_id = str(ctx.author.id)
+    receiver_id = str(member.id)
+    
+    init_user(giver_id)
+    init_user(receiver_id)
+    
+    if users[giver_id]["money"] < amount:
+        await ctx.send("❌ | You don't have enough cowoncy!")
+        return
+    
+    users[giver_id]["money"] -= amount
+    users[receiver_id]["money"] += amount
+    save_data()
+    
+    await ctx.send(f"💸 | {ctx.author.mention} gave {member.mention} **{amount}** cowoncy!")
+
+# Daily command
+@bot.command()
+async def daily(ctx):
+    user_id = str(ctx.author.id)
+    init_user(user_id)
+    
+    # Simple daily (no cooldown tracking in this example)
+    daily_amount = 500
+    users[user_id]["money"] += daily_amount
+    save_data()
+    
+    await ctx.send(f"📆 | {ctx.author.mention} received **{daily_amount}** cowoncy as daily reward!")
+
+# Catch command (for catching animals)
+@bot.command()
+async def catch(ctx):
+    user_id = str(ctx.author.id)
+    init_user(user_id)
+    
+    # Cooldown check (60 seconds)
+    if user_id in cooldowns and cooldowns[user_id] > asyncio.get_event_loop().time():
+        remaining = int(cooldowns[user_id] - asyncio.get_event_loop().time())
+        await ctx.send(f"⏱️ | You're tired! Try again in **{remaining}** seconds!")
+        return
+    
+    # Set cooldown
+    cooldowns[user_id] = asyncio.get_event_loop().time() + 60
+    
+    # Catch logic
+    success = random.randint(1, 100)
+    if success <= 70:  # 70% chance
+        animal = random.choice(list(animals.keys()))
+        value = animals[animal]
+        
+        if animal in users[user_id]["animals"]:
+            users[user_id]["animals"][animal] += 1
+        else:
+            users[user_id]["animals"][animal] = 1
+            
+        users[user_id]["xp"] += 5
+        save_data()
+        await ctx.send(f"🎉 | You caught a **{animal}** worth **{value}** cowoncy!")
+    else:
+        await ctx.send("❌ | The animal escaped!")
+
+# Profile command
+@bot.command(aliases=['profile'])
+async def prof(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    user_id = str(target.id)
+    init_user(user_id)
+    
+    money = users[user_id]["money"]
+    level = users[user_id]["level"]
+    xp = users[user_id]["xp"]
+    
+    embed = discord.Embed(title=f"{target.name}'s Profile", color=0xff69b4)
+    embed.add_field(name="💰 Cowoncy", value=money, inline=True)
+    embed.add_field(name="⬆️ Level", value=level, inline=True)
+    embed.add_field(name="⭐ XP", value=xp, inline=True)
+    embed.set_thumbnail(url=target.avatar.url)
+    
+    await ctx.send(embed=embed)
+
+# Leaderboard command
+@bot.command(aliases=['lb'])
+async def leaderboard(ctx):
+    sorted_users = sorted(users.items(), key=lambda x: x[1]["money"], reverse=True)[:10]
+    
+    if not sorted_users:
+        await ctx.send("❌ | No users found!")
+        return
+    
+    lb_text = ""
+    for i, (user_id, data) in enumerate(sorted_users, 1):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            lb_text += f"{i}. {user.name} - {data['money']} cowoncy\n"
+        except:
+            continue
+    
+    embed = discord.Embed(title="🏆 Cowoncy Leaderboard", description=lb_text, color=0xffd700)
+    await ctx.send(embed=embed)
+
+# Help command
+@bot.command()
+async def help(ctx):
+    help_text = """
+    **OWO Bot Commands:**
+    `owohunt` - Hunt for animals
+    `owobalance` - Check your balance
+    `owoinventory` - View your inventory
+    `owogive @user <amount>` - Give cowoncy to someone
+    `owodaily` - Get daily reward
+    `owocatch` - Try to catch animals
+    `owoprofile` - View your profile
+    `owoleaderboard` - See richest users
+    """
+    await ctx.send(help_text)
+
+# Events
+@bot.event
+async def on_ready():
+    print(f'{bot.user} is ready!')
+    load_data()
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+    
+    # Random cowoncy gain
+    if random.randint(1, 100) <= 5:  # 5% chance
+        user_id = str(message.author.id)
+        init_user(user_id)
+        gain = random.randint(1, 10)
+        users[user_id]["money"] += gain
+        save_data()
+    
+    await bot.process_commands(message)
+
+# Run the bot
+bot.run('MTQwMTc4NzYxNzc0MTM3NzU0Nw.Gqbhgo.Zcgm9jbyD5dCGgAc2heL1cZPzp3CgtA9SlyQx0')
